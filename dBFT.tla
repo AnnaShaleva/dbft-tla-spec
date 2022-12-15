@@ -1,7 +1,7 @@
 -------------------------------- MODULE dBFT --------------------------------
 
 EXTENDS
-  \* Integers defines .. operator.
+  \* Integers defines .. and \div operators.
   Integers,
   
   \* FinitSets defines Cardinality operator.
@@ -34,6 +34,15 @@ TypeOK ==
   /\ rmState \in [RM -> {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"}]
   \*/\ {primaryI} \in {1..Cardinality(RM)}
   /\ msgs \subseteq Messages
+
+\* N is the number of validators.
+N == Cardinality(RM)
+
+\* F is the number of validators that are allowed to be malicious.
+F == (N - 1) \div 3
+
+\* M is the number of validators that must function correctly.
+M == N - F
 
 \* IsPrimary is an operator defining whether provided node is primary for the
 \* current round. It is a mapping from RM to the set of {TRUE, FALSE}.
@@ -74,7 +83,7 @@ RMSendPrepareResponse(r) ==
 RMSendCommit(r) ==
   /\ rmState[r] = "prepareResponseSent"
   /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse")})        \* TODO: check PrepareResponses for the CURRENT view only!
-                                                                  >= 3 \* TODO: add a separate formulae for M, N and F
+                                                                  >= M
   /\ rmState' = [rmState EXCEPT ![r] = "commitSent"]
   /\ msgs' = msgs \cup {[type |-> "Commit", rm |-> r]}
   /\ UNCHANGED <<primaryI>>
@@ -88,14 +97,14 @@ RMSendChangeView(r) ==
     \* \/ rmState[r] = "prepareRequestSent" \* Q2: if it's a leader, but it can't broadcast its PrepareResponse for some reason (bad network connection, etc.)
      \/
         /\ rmState[r] = "prepareResponseSent" \* there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
-        /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse")}) < 3
+        /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse")}) < M
   /\ UNCHANGED <<primaryI>> \* TODO: properly fill unchange VARs
   
 \* Node r collects enough Commit messages and accepts block.
 RMAcceptBlock(r) ==
   /\ rmState[r] = "commitSent"
   /\ Cardinality({msg \in msgs : (msg.type = "Commit")})  \* TODO: check Commits for the CURRENT view only!
-                                                         >= 3 \* TODO: add a separate formulae for M, N and F
+                                                         >= M
   /\ rmState' = [rmState EXCEPT ![r] = "blockAccepted"]
   /\ UNCHANGED <<primaryI, msgs>>
 
@@ -123,5 +132,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 15 16:06:24 MSK 2022 by anna
+\* Last modified Thu Dec 15 17:01:31 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
