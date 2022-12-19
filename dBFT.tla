@@ -14,7 +14,10 @@ CONSTANTS
   \*   name  |-> "rm1"
   \*   index |-> 1
   \* ]
-  RM
+  RM,
+  
+  \* MaxView is the maximum view number from (from 1 to N)
+  MaxView
 
 VARIABLES
   \* rmState is a set of consensus node states, i.e. rmState[r] is the state
@@ -23,7 +26,7 @@ VARIABLES
   
  \* The set of messages sent to the network. Each message has the form of
  \* element of Messages.
-  msgs 
+  msgs
 
 \* N is the number of validators.
 N == Cardinality(RM)
@@ -34,13 +37,18 @@ F == (N - 1) \div 3
 \* M is the number of validators that must function correctly.
 M == N - F
 
+Views == 1..MaxView
+
 \* RMStates is a set of records where each record holds the node state and
 \* the node current view.
-RMStates == [type: {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"}, view : Nat \ {0}]
+RMStates == [
+              type: {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"},
+              view : Views
+            ]
 
 \* Messages is a set of records where each record holds the message type,
 \* the message sender and sender's view by the moment when message was sent.
-Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit"}, rm : RM, view : Nat \ {0}]
+Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView"}, rm : RM, view : Views]
 
 \* The type-correctness invariant.
 TypeOK ==
@@ -50,10 +58,13 @@ TypeOK ==
 \* IsPrimary is an operator defining whether provided node r is primary
 \* for the current round from the r's point of view. It is a mapping
 \* from RM to the set of {TRUE, FALSE}.
-IsPrimary(r) == rmState[r].view % N = r.index
+IsPrimary(r) == (rmState[r].view % N) + 1 = r.index
 
 \* GetPrimary is an operator difining mapping from round index to RM.
-GetPrimary(view) == CHOOSE r \in RM : view % N = r.index
+GetPrimary(view) == CHOOSE r \in RM : (view % N) + 1 = r.index
+
+\* GetNewView returns new view number based on the previous node view value.
+GetNewView(oldView) == oldView + 1
 
 \* The initial predicate.
 Init ==
@@ -87,7 +98,7 @@ RMSendCommit(r) ==
   /\ rmState' = [rmState EXCEPT ![r].type = "commitSent"]
   /\ msgs' = msgs \cup {[type |-> "Commit", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<>>
-  
+
 \* Node r collects enough Commit messages and accepts block.
 RMAcceptBlock(r) ==
   /\ rmState[r].type = "commitSent"
@@ -95,9 +106,29 @@ RMAcceptBlock(r) ==
   /\ rmState' = [rmState EXCEPT ![r].type = "blockAccepted"]
   /\ UNCHANGED <<msgs>>
 
-\* Allow infinite stuttering to prevent deadlock on termination.
+RMSendChangeView(r) ==
+  /\
+     \/ rmState[r].type = "initialized" \* if there's no PrepareRequest for a long time.
+    \* \/ rmState[r].type = "prepareRequestSent" \* @FIXME: refactor so that primary won't be able to send PrepareResponse.
+     \/ rmState[r].type = "prepareResponseSent" \* there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
+  /\ msgs' = msgs \cup {[type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]}
+  /\ UNCHANGED <<rmState>>
+
+RMReceiveChangeView(r) ==
+  /\ rmState[r].type /= "commitSent"
+  /\ rmState[r].type /= "blockAccepted"
+  /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M
+  /\
+     LET newView == GetNewView(rmState[r].view)
+     IN
+        /\ newView <= MaxView \* TODO: get rid of MaxView and set the model constraint.
+        /\ rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = newView]
+  /\ UNCHANGED <<msgs>>
+
+\* Allow infinite stuttering to prevent deadlock on termination. We consider
+\* termination to be valid if M nodes have the block being accepted.
 Terminating ==
-  /\ \A rm \in RM: rmState[rm].type = "blockAccepted"
+  /\ Cardinality({rm \in RM : rmState[rm].type = "blockAccepted"}) >= M
   /\ UNCHANGED <<msgs, rmState>>
 
 \* The next-state action.
@@ -105,7 +136,7 @@ Next ==
   \/ Terminating
   \/ \E r \in RM : 
        RMSendPrepareRequest(r) \/ RMSendPrepareResponse(r) \/ RMSendCommit(r)
-         \/ RMAcceptBlock(r)
+         \/ RMAcceptBlock(r) \/ RMSendChangeView(r) \/ RMReceiveChangeView(r)
 
 \* A state predicate asserting that two RMs have not arrived at conflicting
 \* decisions.  It is an invariant of the specification.
@@ -125,5 +156,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Dec 19 18:53:30 MSK 2022 by anna
+\* Last modified Tue Dec 20 18:50:47 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
