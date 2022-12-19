@@ -8,32 +8,22 @@ EXTENDS
   FiniteSets
   
 CONSTANTS
-  RM \* The set of consensus nodes.
+  \* The set of consensus nodes with their indexes. Each element is a record
+  \* of the following form:
+  \* [
+  \*   name  |-> "rm1"
+  \*   index |-> 1
+  \* ]
+  RM
 
 VARIABLES
   \* rmState is a set of consensus node states, i.e. rmState[r] is the state
   \* of consensus node r.
   rmState,
   
-  \* primaryI is a single number representing the index of the primary node
-  \* in the current round (view).
-  \* TODO: replace it with rmState[r].view, as it's the property of each node,
-  \* and some of them may have an old view?
-  primaryI,
-  
  \* The set of messages sent to the network. Each message has the form of
  \* element of Messages.
   msgs 
-  
-\* Messages is a set of records where each record holds the message type and
-\* the sender.
-Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit"}, rm : RM]
-
-\* The type-correctness invariant.
-TypeOK ==
-  /\ rmState \in [RM -> {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"}]
-  \*/\ {primaryI} \in {1..Cardinality(RM)}
-  /\ msgs \subseteq Messages
 
 \* N is the number of validators.
 N == Cardinality(RM)
@@ -44,72 +34,77 @@ F == (N - 1) \div 3
 \* M is the number of validators that must function correctly.
 M == N - F
 
-\* IsPrimary is an operator defining whether provided node is primary for the
-\* current round. It is a mapping from RM to the set of {TRUE, FALSE}.
-\* TODO
-IsPrimary(r) == r = "rm1"
+\* RMStates is a set of records where each record holds the node state and
+\* the node current view.
+RMStates == [type: {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"}, view : Nat \ {0}]
+
+\* Messages is a set of records where each record holds the message type and
+\* the sender.
+Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit"}, rm : RM]
+
+\* The type-correctness invariant.
+TypeOK ==
+  /\ rmState \in [RM -> RMStates]
+  /\ msgs \subseteq Messages
+
+\* IsPrimary is an operator defining whether provided node r is primary
+\* for the current round from the r's point of view. It is a mapping
+\* from RM to the set of {TRUE, FALSE}.
+IsPrimary(r) == rmState[r].view % N = r.index
 
 \* GetPrimary is an operator difining mapping from round index to RM.
-\* TODO
-GetPrimary(round) == "rm1"
+GetPrimary(view) == CHOOSE r \in RM : view % N = r.index
 
 \* The initial predicate.
 Init ==
-  /\ rmState = [r \in RM |-> "initialized"]
-  /\ primaryI = 1
+  /\ rmState = [r \in RM |-> [type |-> "initialized", view |-> 1]]
   /\ msgs = {}
   
 \* Primary node r broadcasts PrepareRequest.
 RMSendPrepareRequest(r) ==
-  /\ rmState[r] = "initialized"
+  /\ rmState[r].type = "initialized"
   /\ IsPrimary(r)
-  /\ rmState' = [rmState EXCEPT ![r] = "prepareRequestSent"]
+  /\ rmState' = [rmState EXCEPT ![r].type = "prepareRequestSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareRequest", rm |-> r]}
-  /\ UNCHANGED <<primaryI>>
+  /\ UNCHANGED <<>>
   
 \* Node r (either primary or non-primary) receives PrepareRequest from the primary node
 \* of the current round (view) and broadcasts PrepareResponse. This step assumes that
 \* PrepareRequest always contains valid transactions and signatures.
 RMSendPrepareResponse(r) ==
   /\
-     \/ rmState[r] = "initialized"
-     \/ rmState[r] = "prepareRequestSent" \* TODO: check PrepareRequest sent for the CURRENT view only!
-  /\ [type |-> "PrepareRequest", rm |-> GetPrimary(primaryI)] \in msgs
-  /\ rmState' = [rmState EXCEPT ![r] = "prepareResponseSent"]
+     \/ rmState[r].type = "initialized"
+     \/ rmState[r].type = "prepareRequestSent" \* TODO: check PrepareRequest sent for the CURRENT view only!
+  /\ [type |-> "PrepareRequest", rm |-> GetPrimary(rmState[r].view)] \in msgs
+  /\ rmState' = [rmState EXCEPT ![r].type = "prepareResponseSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareResponse", rm |-> r]}
-  /\ UNCHANGED <<primaryI>>
+  /\ UNCHANGED <<>>
 
 \* Node r sends Commit if there's enough PrepareResponse messages.
 RMSendCommit(r) ==
-  /\ rmState[r] = "prepareResponseSent"
+  /\ rmState[r].type = "prepareResponseSent"
   /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse")})        \* TODO: check PrepareResponses for the CURRENT view only!
                                                                   >= M
-  /\ rmState' = [rmState EXCEPT ![r] = "commitSent"]
+  /\ rmState' = [rmState EXCEPT ![r].type = "commitSent"]
   /\ msgs' = msgs \cup {[type |-> "Commit", rm |-> r]}
-  /\ UNCHANGED <<primaryI>>
-  
-\* Node r sends ChangeView if there's not enough PrepareResponse messages.
-\* TODO: not finished yet, may be some other cases.
-RMSendChangeView(r) ==
-  /\ FALSE \* TODO: enable this condition in the next spec version.
-  /\
-     \/ rmState[r] = "initialized" \* if there's no PrepareRequest for a long time.
-    \* \/ rmState[r] = "prepareRequestSent" \* Q2: if it's a leader, but it can't broadcast its PrepareResponse for some reason (bad network connection, etc.)
-     \/
-        /\ rmState[r] = "prepareResponseSent" \* there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
-        /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse")}) < M
-  /\ UNCHANGED <<primaryI>> \* TODO: properly fill unchange VARs
+  /\ UNCHANGED <<>>
   
 \* Node r collects enough Commit messages and accepts block.
 RMAcceptBlock(r) ==
-  /\ rmState[r] = "commitSent"
+  /\ rmState[r].type = "commitSent"
   /\ Cardinality({msg \in msgs : (msg.type = "Commit")})  \* TODO: check Commits for the CURRENT view only!
                                                          >= M
-  /\ rmState' = [rmState EXCEPT ![r] = "blockAccepted"]
-  /\ UNCHANGED <<primaryI, msgs>>
+  /\ rmState' = [rmState EXCEPT ![r].type = "blockAccepted"]
+  /\ UNCHANGED <<msgs>>
+
+\* Allow infinite stuttering to prevent deadlock on termination.
+Terminating ==
+  /\ \A rm \in RM: rmState[rm].type = "blockAccepted"
+  /\ UNCHANGED <<msgs, rmState>>
 
 \* The next-state action.
 Next ==
+  \/ Terminating
   \/ \E r \in RM : 
        RMSendPrepareRequest(r) \/ RMSendPrepareResponse(r) \/ RMSendCommit(r)
          \/ RMAcceptBlock(r)
@@ -118,11 +113,11 @@ Next ==
 \* decisions.  It is an invariant of the specification.
 Consistent == \* TODO: need some more care.
   \/ TRUE
-  \/ \A r1, r2 \in RM : ~ /\ rmState[r1] = "blockAccepted"
-                          /\ rmState[r2] = "changeViewRequested"
+  \/ \A r1, r2 \in RM : ~ /\ rmState[r1].type = "blockAccepted"
+                          /\ rmState[r2].type = "changeViewRequested"
 
 \* The complete specification of the protocol written as a temporal  formula.  
-Spec == Init /\ [][Next]_<<rmState, primaryI, msgs>>
+Spec == Init /\ [][Next]_<<rmState, msgs>>
 
 \* This theorem asserts the truth of the temporal formula whose meaning is that
 \* the state predicate TypeOK /\ Consistent is an invariant of the
@@ -132,5 +127,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 15 17:01:31 MSK 2022 by anna
+\* Last modified Mon Dec 19 18:30:02 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
