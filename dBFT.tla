@@ -39,10 +39,12 @@ M == N - F
 
 Views == 1..MaxView
 
+ViewOK(view) == view \in Views
+
 \* RMStates is a set of records where each record holds the node state and
 \* the node current view.
 RMStates == [
-              type: {"initialized", "prepareRequestSent", "prepareResponseSent", "commitSent", "blockAccepted"},
+              type: {"initialized", "prepareSent", "commitSent", "blockAccepted"},
               view : Views
             ]
 
@@ -54,6 +56,9 @@ Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView"
 TypeOK ==
   /\ rmState \in [RM -> RMStates]
   /\ msgs \subseteq Messages
+  /\ \A r \in RM : ViewOK(rmState[r].view)
+  /\ \A msg \in msgs : ViewOK(msg.view)
+  
 
 \* IsPrimary is an operator defining whether provided node r is primary
 \* for the current round from the r's point of view. It is a mapping
@@ -66,6 +71,14 @@ GetPrimary(view) == CHOOSE r \in RM : (view % N) + 1 = r.index
 \* GetNewView returns new view number based on the previous node view value.
 GetNewView(oldView) == oldView + 1
 
+\* IsViewChanging denotes whether node r have sent ChangeView message for the
+\* current round.
+IsViewChanging(r) == \E msg \in [type : {"ChangeView"}, rm : {r}, view : {v \in Views : v > rmState[r].view}] : msg \in msgs
+
+\* PrepareRequestSentOrReceived denotes whether there's a PrepareRequest
+\* message received from the current round's speaker (as the node r sees it).
+PrepareRequestSentOrReceived(r) == [type |-> "PrepareRequest", rm |-> GetPrimary(rmState[r].view), view |-> rmState[r].view] \in msgs
+
 \* The initial predicate.
 Init ==
   /\ rmState = [r \in RM |-> [type |-> "initialized", view |-> 1]]
@@ -75,26 +88,26 @@ Init ==
 RMSendPrepareRequest(r) ==
   /\ rmState[r].type = "initialized"
   /\ IsPrimary(r)
-  /\ rmState' = [rmState EXCEPT ![r].type = "prepareRequestSent"]
+  /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareRequest", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<>>
   
-\* Node r (either primary or non-primary) receives PrepareRequest from the primary node
-\* of the current round (view) and broadcasts PrepareResponse. This step assumes that
-\* PrepareRequest always contains valid transactions and signatures.
+\* Non-primary node r receives PrepareRequest from the primary node
+\* of the current round (view) and broadcasts PrepareResponse.
+\* This step assumes that PrepareRequest always contains valid transactions and signatures.
 RMSendPrepareResponse(r) ==
-  /\
-     \/ rmState[r].type = "initialized"
-     \/ rmState[r].type = "prepareRequestSent"
-  /\ [type |-> "PrepareRequest", rm |-> GetPrimary(rmState[r].view), view |-> rmState[r].view] \in msgs
-  /\ rmState' = [rmState EXCEPT ![r].type = "prepareResponseSent"]
+  /\ rmState[r].type = "initialized"
+  /\ \neg IsPrimary(r)
+  /\ PrepareRequestSentOrReceived(r)
+  /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareResponse", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<>>
 
 \* Node r sends Commit if there's enough PrepareResponse messages.
 RMSendCommit(r) ==
-  /\ rmState[r].type = "prepareResponseSent"
-  /\ Cardinality({msg \in msgs : (msg.type = "PrepareResponse" /\ msg.view = rmState[r].view)}) >= M
+  /\ rmState[r].type = "prepareSent"
+  /\ Cardinality({msg \in msgs : ((msg.type = "PrepareResponse" \/ msg.type = "PrepareRequest") /\ msg.view = rmState[r].view)}) >= M
+  /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "commitSent"]
   /\ msgs' = msgs \cup {[type |-> "Commit", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<>>
@@ -109,13 +122,12 @@ RMAcceptBlock(r) ==
 RMSendChangeView(r) ==
   /\
      \/ rmState[r].type = "initialized" \* if there's no PrepareRequest for a long time.
-    \* \/ rmState[r].type = "prepareRequestSent" \* @FIXME: refactor so that primary won't be able to send PrepareResponse.
-     \/ rmState[r].type = "prepareResponseSent" \* there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
+     \/ rmState[r].type = "prepareSent" \* if there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
   /\ msgs' = msgs \cup {[type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<rmState>>
 
 RMReceiveChangeView(r) ==
-  /\ rmState[r].type /= "commitSent"
+  /\ rmState[r].type /= "commitSent" \* dbft.go -L470
   /\ rmState[r].type /= "blockAccepted"
   /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M
   /\
@@ -156,5 +168,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Dec 20 18:50:47 MSK 2022 by anna
+\* Last modified Thu Dec 22 12:30:58 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
