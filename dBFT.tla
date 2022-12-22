@@ -15,6 +15,7 @@ CONSTANTS
   \*   index |-> 1
   \* ]
   RM,
+  RMFault,
   
   \* MaxView is the maximum view number from (from 1 to N)
   MaxView
@@ -36,6 +37,11 @@ F == (N - 1) \div 3
 
 \* M is the number of validators that must function correctly.
 M == N - F
+
+ASSUME
+  /\ N >= 4
+  /\ RMFault \subseteq RM
+  /\ Cardinality(RMFault) <= F
 
 Views == 1..MaxView
 
@@ -133,13 +139,16 @@ RMSendChangeView(r) ==
   /\
      \/ rmState[r].type = "initialized" \* if there's no PrepareRequest for a long time.
      \/ rmState[r].type = "prepareSent" \* if there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
+     \/ r \in RMFault
   /\ msgs' = msgs \cup {[type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<rmState>>
 
 RMReceiveChangeView(r) ==
-  /\ rmState[r].type /= "commitSent" \* dbft.go -L470
-  /\ rmState[r].type /= "blockAccepted"
-  /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M
+  \/ r \in RMFault
+  \/   
+     /\ rmState[r].type /= "commitSent" \* dbft.go -L470
+     /\ rmState[r].type /= "blockAccepted"
+     /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M
   /\
      LET newView == GetNewView(rmState[r].view)
      IN
@@ -186,5 +195,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 22 17:09:20 MSK 2022 by anna
+\* Last modified Thu Dec 22 18:01:54 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
