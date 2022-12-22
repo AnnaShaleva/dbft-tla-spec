@@ -73,7 +73,7 @@ GetNewView(oldView) == oldView + 1
 
 \* IsViewChanging denotes whether node r have sent ChangeView message for the
 \* current round.
-IsViewChanging(r) == \E msg \in [type : {"ChangeView"}, rm : {r}, view : {v \in Views : v > rmState[r].view}] : msg \in msgs
+IsViewChanging(r) == \E msg \in [type : {"ChangeView"}, rm : {r}, view : {v \in Views : v >= rmState[r].view}] : msg \in msgs
 
 \* PrepareRequestSentOrReceived denotes whether there's a PrepareRequest
 \* message received from the current round's speaker (as the node r sees it).
