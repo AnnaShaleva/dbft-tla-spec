@@ -75,6 +75,13 @@ GetNewView(oldView) == oldView + 1
 \* current round.
 IsViewChanging(r) == \E msg \in [type : {"ChangeView"}, rm : {r}, view : {v \in Views : v >= rmState[r].view}] : msg \in msgs
 
+CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
+CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view < rmState[r].view}) /= 0 })
+MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) + CountFailed(r) > F
+NotAcceptingPayloadsDueToViewChanging(r) ==
+  /\ IsViewChanging(r)
+  /\ \neg MoreThanFNodesCommittedOrLost(r)
+
 \* PrepareRequestSentOrReceived denotes whether there's a PrepareRequest
 \* message received from the current round's speaker (as the node r sees it).
 PrepareRequestSentOrReceived(r) == [type |-> "PrepareRequest", rm |-> GetPrimary(rmState[r].view), view |-> rmState[r].view] \in msgs
@@ -96,7 +103,7 @@ RMSendPrepareRequest(r) ==
 \* of the current round (view) and broadcasts PrepareResponse.
 \* This step assumes that PrepareRequest always contains valid transactions and signatures.
 RMSendPrepareResponse(r) ==
-  /\ rmState[r].type = "initialized"
+  /\ rmState[r].type = "initialized" \* dbft.go -L151-L155
   /\ \neg IsPrimary(r)
   /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent"]
@@ -106,6 +113,9 @@ RMSendPrepareResponse(r) ==
 \* Node r sends Commit if there's enough PrepareResponse messages.
 RMSendCommit(r) ==
   /\ rmState[r].type = "prepareSent"
+  /\
+     \/ IsPrimary(r) \* dbft.go -L196 (if primary, on timeout, then commit may be sent immediately after PrepareRequest)
+     \/ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L 151, -L300 // TODO: diff in code with C# node
   /\ Cardinality({msg \in msgs : ((msg.type = "PrepareResponse" \/ msg.type = "PrepareRequest") /\ msg.view = rmState[r].view)}) >= M
   /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "commitSent"]
@@ -150,12 +160,20 @@ Next ==
        RMSendPrepareRequest(r) \/ RMSendPrepareResponse(r) \/ RMSendCommit(r)
          \/ RMAcceptBlock(r) \/ RMSendChangeView(r) \/ RMReceiveChangeView(r)
 
+\* Invariat for 4 nodes setup.
+Inv ==
+  \/ Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) /= 2
+  \/ Cardinality({r \in RM : (rmState[r].type /= "blockAccepted" /\ rmState[r].type /= "commitSent" /\ IsViewChanging(r))}) /= 2
+
+\* Invariant for ChangeView-absent setup.
+Inv1 == \A r \in RM : IsViewChanging(r) = FALSE
+
 \* A state predicate asserting that two RMs have not arrived at conflicting
 \* decisions.  It is an invariant of the specification.
 Consistent == \* TODO: need some more care.
   \/ TRUE
-  \/ \A r1, r2 \in RM : ~ /\ rmState[r1].type = "blockAccepted"
-                          /\ rmState[r2].type = "changeViewRequested"
+  \*\/ \A r1, r2 \in RM : ~ /\ rmState[r1].type = "blockAccepted"
+  \*                        /\ rmState[r2].type = "changeViewRequested"
 
 \* The complete specification of the protocol written as a temporal  formula.  
 Spec == Init /\ [][Next]_<<rmState, msgs>>
@@ -168,5 +186,5 @@ THEOREM Spec => [](TypeOK /\ Consistent)
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 22 12:30:58 MSK 2022 by anna
+\* Last modified Thu Dec 22 17:09:20 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
