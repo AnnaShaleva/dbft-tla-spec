@@ -15,10 +15,7 @@ CONSTANTS
   \*   index |-> 1
   \* ]
   RM,
-  RMFault,
-  
-  \* MaxView is the maximum view number from (from 1 to N)
-  MaxView
+  RMFault
 
 VARIABLES
   \* rmState is a set of consensus node states, i.e. rmState[r] is the state
@@ -28,6 +25,9 @@ VARIABLES
  \* The set of messages sent to the network. Each message has the form of
  \* element of Messages.
   msgs
+
+\* A tuple of all variables used for simplisity of fairness conditions.
+vars == << rmState, msgs >>
 
 \* N is the number of validators.
 N == Cardinality(RM)
@@ -43,27 +43,21 @@ ASSUME
   /\ RMFault \subseteq RM
   /\ Cardinality(RMFault) <= F
 
-Views == 1..MaxView
-
-ViewOK(view) == view \in Views
-
 \* RMStates is a set of records where each record holds the node state and
 \* the node current view.
 RMStates == [
               type: {"initialized", "prepareSent", "commitSent", "blockAccepted"},
-              view : Views
+              view : Nat
             ]
 
 \* Messages is a set of records where each record holds the message type,
 \* the message sender and sender's view by the moment when message was sent.
-Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView"}, rm : RM, view : Views]
+Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView"}, rm : RM, view : Nat]
 
 \* The type-correctness invariant.
 TypeOK ==
   /\ rmState \in [RM -> RMStates]
   /\ msgs \subseteq Messages
-  /\ \A r \in RM : ViewOK(rmState[r].view)
-  /\ \A msg \in msgs : ViewOK(msg.view)
   
 
 \* IsPrimary is an operator defining whether provided node r is primary
@@ -74,12 +68,17 @@ IsPrimary(r) == (rmState[r].view % N) + 1 = r.index
 \* GetPrimary is an operator difining mapping from round index to RM.
 GetPrimary(view) == CHOOSE r \in RM : (view % N) + 1 = r.index
 
+IsFault(r) == r \in RMFault
+
 \* GetNewView returns new view number based on the previous node view value.
 GetNewView(oldView) == oldView + 1
 
 \* IsViewChanging denotes whether node r have sent ChangeView message for the
 \* current round.
-IsViewChanging(r) == \E msg \in [type : {"ChangeView"}, rm : {r}, view : {v \in Views : v >= rmState[r].view}] : msg \in msgs
+IsViewChanging(r) == Cardinality({msg \in msgs : msg.type = "ChangeView" /\ msg.rm = r /\ msg.view >= rmState[r].view}) /= 0
+
+\* IsBlockAccepted returns whether at least one node has the block being accepted.
+IsBlockAccepted(r) == Cardinality({msg \in msgs : rmState[msg].type = "blockAccepted"})
 
 CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
 CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view < rmState[r].view}) /= 0 })
@@ -91,6 +90,8 @@ NotAcceptingPayloadsDueToViewChanging(r) ==
 \* PrepareRequestSentOrReceived denotes whether there's a PrepareRequest
 \* message received from the current round's speaker (as the node r sees it).
 PrepareRequestSentOrReceived(r) == [type |-> "PrepareRequest", rm |-> GetPrimary(rmState[r].view), view |-> rmState[r].view] \in msgs
+
+\* -------------- Safety temporal formula --------------
 
 \* The initial predicate.
 Init ==
@@ -111,6 +112,7 @@ RMSendPrepareRequest(r) ==
 RMSendPrepareResponse(r) ==
   /\ rmState[r].type = "initialized" \* dbft.go -L151-L155
   /\ \neg IsPrimary(r)
+  \* /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L300, in C# node, but not in ours
   /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareResponse", rm |-> r, view |-> rmState[r].view]}
@@ -119,9 +121,9 @@ RMSendPrepareResponse(r) ==
 \* Node r sends Commit if there's enough PrepareResponse messages.
 RMSendCommit(r) ==
   /\ rmState[r].type = "prepareSent"
-  /\
-     \/ IsPrimary(r) \* dbft.go -L196 (if primary, on timeout, then commit may be sent immediately after PrepareRequest)
-     \/ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L 151, -L300 // TODO: diff in code with C# node
+  /\ \neg NotAcceptingPayloadsDueToViewChanging(r)
+     \* (IsPrimary(r) \/) -- INVALID; dbft.go -L196 (if primary, on timeout, then commit may be sent immediately after PrepareRequest)
+     \* dbft.go -L 151, -L300 // TODO: diff in code with C# node    
   /\ Cardinality({msg \in msgs : ((msg.type = "PrepareResponse" \/ msg.type = "PrepareRequest") /\ msg.view = rmState[r].view)}) >= M
   /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "commitSent"]
@@ -136,30 +138,21 @@ RMAcceptBlock(r) ==
   /\ UNCHANGED <<msgs>>
 
 RMSendChangeView(r) ==
-  /\
-     \/ rmState[r].type = "initialized" \* if there's no PrepareRequest for a long time.
-     \/ rmState[r].type = "prepareSent" \* if there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
-     \/ r \in RMFault
+  \* if there's no PrepareRequest for a long time.
+  \* if there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
+  /\ (rmState[r].type = "initialized" \/ rmState[r].type = "prepareSent" \/ IsFault(r))
   /\ msgs' = msgs \cup {[type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]}
   /\ UNCHANGED <<rmState>>
 
 RMReceiveChangeView(r) ==
-  \/ r \in RMFault
-  \/   
-     /\ rmState[r].type /= "commitSent" \* dbft.go -L470
-     /\ rmState[r].type /= "blockAccepted"
-     /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M
-  /\
-     LET newView == GetNewView(rmState[r].view)
-     IN
-        /\ newView <= MaxView \* TODO: get rid of MaxView and set the model constraint.
-        /\ rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = newView]
+  /\ (IsFault(r) \/ (rmState[r].type /= "commitSent" /\ rmState[r].type /= "blockAccepted" /\ Cardinality({msg \in msgs : (msg.type = "ChangeView" /\ GetNewView(msg.view) >= GetNewView(rmState[r].view))}) >= M))\* dbft.go -L470 
+  /\ rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = GetNewView(rmState[r].view)]
   /\ UNCHANGED <<msgs>>
 
 \* Allow infinite stuttering to prevent deadlock on termination. We consider
-\* termination to be valid if M nodes have the block being accepted.
+\* termination to be valid if at least one node has the block being accepted.
 Terminating ==
-  /\ Cardinality({rm \in RM : rmState[rm].type = "blockAccepted"}) >= M
+  /\ Cardinality({rm \in RM : rmState[rm].type = "blockAccepted"}) >=1
   /\ UNCHANGED <<msgs, rmState>>
 
 \* The next-state action.
@@ -169,31 +162,95 @@ Next ==
        RMSendPrepareRequest(r) \/ RMSendPrepareResponse(r) \/ RMSendCommit(r)
          \/ RMAcceptBlock(r) \/ RMSendChangeView(r) \/ RMReceiveChangeView(r)
 
-\* Invariat for 4 nodes setup.
-Inv ==
-  \/ Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) /= 2
-  \/ Cardinality({r \in RM : (rmState[r].type /= "blockAccepted" /\ rmState[r].type /= "commitSent" /\ IsViewChanging(r))}) /= 2
+\* A safety temporal formula specifies only what the system MAY do (i.e. the set of possible
+\* allowed behaviours for the system). It asserts only what may happen; any behaviour
+\* that violates it does so at some point and nothing past that point makes difference.
+\*
+\* E.g. this safety formula (applied standalone) allows the behaviour to end with an
+\* infinite set of stuttering steps (those steps that DO NOT change neither msgs nor rmState)
+\* and never reach the state where at least one node is committed or accepted the
+\* block.
+\*
+\* To forbid such behaviours we must specify what the system MUST
+\* do. It will be specified below with the help of liveness and fairness
+\* conditions in the Liveness formula.
+Safety == Init /\ [][Next]_<<msgs, rmState>>
 
-\* Invariant for ChangeView-absent setup.
-Inv1 == \A r \in RM : IsViewChanging(r) = FALSE
+\* -------------- Liveness temporal formula --------------
 
-\* A state predicate asserting that two RMs have not arrived at conflicting
-\* decisions.  It is an invariant of the specification.
-Consistent == \* TODO: need some more care.
-  \/ TRUE
-  \*\/ \A r1, r2 \in RM : ~ /\ rmState[r1].type = "blockAccepted"
-  \*                        /\ rmState[r2].type = "changeViewRequested"
+\* For every possible behaviour it's true that there's at least one PrepareRequest message from the speaker.
+PrepareResponseSentRequirement == <>(\E msg \in msgs : msg.type = "PrepareResponse")
 
-\* The complete specification of the protocol written as a temporal  formula.  
-Spec == Init /\ [][Next]_<<rmState, msgs>>
+\* For every possible behaviour it's true that eventually (i.e. at least once through the behaviour)
+\* block will be accepted. It is something that dBFT must guarantee (an in practice this
+\* condition is violated).
+TerminationRequirement == <>(\E r \in RM : rmState[r].type = "blockAccepted")
+
+\* For every possible behaviour if there's a non-fault node that have sent the commit message,
+\* then there's a node that has the block being accepted at this step or at any subsequent step.
+DeadlockFreeRequirement == (\E r \in RM \ RMFault : rmState[r].type = "commitSent") ~> (\E r \in RM : rmState[r].type = "blockAccepted")
+
+\* For every possible behaviour it's true that for any non-fault node that has sent the commit message
+\* the block will be accepted by this node in this step or in one of the subsequent steps of the behaviour.
+BlockAcceptanceRequirement == \A r \in RM \ RMFault : (rmState[r].type = "commitSent") ~> (rmState[r].type = "blockAccepted")
+
+\* A liveness temporal formula asserts only what must happen (i.e. specifies what
+\* the system MUST do). Any behaviour can NOT violate it at ANY point; there's always
+\* the rest of the behaviour that can always make the liveness formula true; if there's
+\* no such behaviour than the liveness formula is violated. The liveness formula is supposed
+\* to be checked as a property by TLC model checker.
+Liveness == PrepareResponseSentRequirement /\ TerminationRequirement /\ BlockAcceptanceRequirement /\ DeadlockFreeRequirement
+
+\* -------------- Fairness temporal formula --------------
+
+\* If continiously at least one of the node is able to send PrepareResponse, then
+\* it must send it eventually.
+SendPrepareRequestFairness == WF_vars(\E r \in RM : RMSendPrepareRequest(r))
+
+\* This requirement requires PrepareResponse message to be sent once PrepareRequest
+\* message is received by the node, but allows stop sending PrepareRequests as far (and
+\* disable RMSendPrepareResponse enabling condition). 
+SendPrepareResponseFairness == WF_vars(\E r \in RM : RMSendPrepareResponse(r))
+
+\* If repeatedly at least one of the node is able to send the commit message, then it
+\* must send it. Even if the node is able to send the ChangeView message after PrepareResponse,
+\* then the node is still must be able to send the Commit in the next view.
+SendCommitFairness == SF_vars(\E r \in RM : RMSendCommit(r))
+
+\* This requirement requires each proper subset of the Commit messages to be accepted
+\* once the set is completed. This results into block submission. At the same time,
+\* SF allows to stop sending Commit messages.
+SubmitBlockFairness == SF_vars(\E r \in RM : RMAcceptBlock(r))
+
+\* This requirement is needed to avoid situations when one node is committed in the
+\* previous view, and three another nodes have changed their view so that the next
+\* speaker is the committed node. It's a deadlock, and this situation requires
+\* the rest of three nodes to change their view.
+SendChangeViewFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
+
+\* If ChangeView message has ever been repeatedly received by any of the node, then it must
+\* be properly handled.
+ReceiveChangeViewFairness == SF_vars(\E r \in RM : RMReceiveChangeView(r))
+
+Fairness == SendCommitFairness /\ SubmitBlockFairness /\ SendPrepareResponseFairness  /\ SendPrepareRequestFairness
+            /\ ReceiveChangeViewFairness /\ SendChangeViewFairness
+
+\* -------------- Specification --------------
+
+\* The complete specification of the protocol written as a temporal formula.  
+Spec == Safety /\ Fairness
+
+\* -------------- ModelConstraints --------------
+
+MaxViewConstraint == \A r \in RM : rmState[r].view <= 4
+
+\* -------------- Invariants of the specification --------------
 
 \* This theorem asserts the truth of the temporal formula whose meaning is that
-\* the state predicate TypeOK /\ Consistent is an invariant of the
-\* specification Spec.  Invariance of this conjunction is equivalent to
-\* invariance of both of the formulas TypeOK and Consistent.     
-THEOREM Spec => [](TypeOK /\ Consistent)
+\* the state predicate TypeOK is an invariant of the specification Spec.
+THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 22 18:01:54 MSK 2022 by anna
+\* Last modified Tue Dec 27 15:56:54 MSK 2022 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
