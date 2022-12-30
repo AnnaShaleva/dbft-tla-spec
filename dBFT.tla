@@ -78,7 +78,7 @@ GetNewView(oldView) == oldView + 1
 IsViewChanging(r) == Cardinality({msg \in msgs : msg.type = "ChangeView" /\ msg.rm = r /\ msg.view >= rmState[r].view}) /= 0
 
 \* IsBlockAccepted returns whether at least one node has the block being accepted.
-IsBlockAccepted(r) == Cardinality({msg \in msgs : rmState[msg].type = "blockAccepted"})
+IsBlockAccepted == Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) > 0
 
 CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
 CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view < rmState[r].view}) /= 0 })
@@ -137,6 +137,14 @@ RMAcceptBlock(r) ==
   /\ rmState' = [rmState EXCEPT ![r].type = "blockAccepted"]
   /\ UNCHANGED <<msgs>>
 
+\* RMFetchBlock sets the node state to "blockAccepted" in case if there's at least one node
+\* that has the block being accepted.
+RMFetchBlock(r) ==
+  /\ rmState[r].type /= "blockAccepted"
+  /\ IsBlockAccepted
+  /\ rmState' = [rmState EXCEPT ![r].type = "blockAccepted"]
+  /\ UNCHANGED <<msgs>>
+
 RMSendChangeView(r) ==
   \* if there's no PrepareRequest for a long time.
   \* if there's a PrepareRequest from leader and r have sent PrepareResponse, but there's not enough of them.
@@ -160,7 +168,7 @@ Next ==
   \/ Terminating
   \/ \E r \in RM : 
        RMSendPrepareRequest(r) \/ RMSendPrepareResponse(r) \/ RMSendCommit(r)
-         \/ RMAcceptBlock(r) \/ RMSendChangeView(r) \/ RMReceiveChangeView(r)
+         \/ RMAcceptBlock(r) \/ RMFetchBlock(r) \/ RMSendChangeView(r) \/ RMReceiveChangeView(r)
 
 \* A safety temporal formula specifies only what the system MAY do (i.e. the set of possible
 \* allowed behaviours for the system). It asserts only what may happen; any behaviour
@@ -199,7 +207,7 @@ BlockAcceptanceRequirement == \A r \in RM \ RMFault : (rmState[r].type = "commit
 \* the rest of the behaviour that can always make the liveness formula true; if there's
 \* no such behaviour than the liveness formula is violated. The liveness formula is supposed
 \* to be checked as a property by TLC model checker.
-Liveness == PrepareResponseSentRequirement /\ TerminationRequirement /\ BlockAcceptanceRequirement /\ DeadlockFreeRequirement
+Liveness == PrepareResponseSentRequirement /\ TerminationRequirement /\ BlockAcceptanceRequirement \* /\ DeadlockFreeRequirement
 
 \* -------------- Fairness temporal formula --------------
 
@@ -222,6 +230,10 @@ SendCommitFairness == SF_vars(\E r \in RM : RMSendCommit(r))
 \* SF allows to stop sending Commit messages.
 SubmitBlockFairness == SF_vars(\E r \in RM : RMAcceptBlock(r))
 
+\* If continiously at least one node has accepted the block, then the node r must fetch
+\* it eventually.
+FetchBlockFairness == WF_vars(\E r \in RM : RMFetchBlock(r))
+
 \* This requirement is needed to avoid situations when one node is committed in the
 \* previous view, and three another nodes have changed their view so that the next
 \* speaker is the committed node. It's a deadlock, and this situation requires
@@ -232,8 +244,9 @@ SendChangeViewFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
 \* be properly handled.
 ReceiveChangeViewFairness == SF_vars(\E r \in RM : RMReceiveChangeView(r))
 
+\* Fairness is a temporal assumptions under which the model is working.
 Fairness == SendCommitFairness /\ SubmitBlockFairness /\ SendPrepareResponseFairness  /\ SendPrepareRequestFairness
-            /\ ReceiveChangeViewFairness /\ SendChangeViewFairness
+            /\ ReceiveChangeViewFairness /\ SendChangeViewFairness /\ FetchBlockFairness
 
 \* -------------- Specification --------------
 
@@ -242,7 +255,7 @@ Spec == Safety /\ Fairness
 
 \* -------------- ModelConstraints --------------
 
-MaxViewConstraint == \A r \in RM : rmState[r].view <= 4
+MaxViewConstraint == \A r \in RM : rmState[r].view <= 3
 
 \* -------------- Invariants of the specification --------------
 
@@ -252,5 +265,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Dec 27 15:56:54 MSK 2022 by anna
+\* Last modified Mon Jan 09 14:44:50 MSK 2023 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
