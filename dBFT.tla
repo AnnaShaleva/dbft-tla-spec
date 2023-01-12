@@ -81,7 +81,7 @@ IsViewChanging(r) == Cardinality({msg \in msgs : msg.type = "ChangeView" /\ msg.
 IsBlockAccepted == Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) > 0
 
 CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
-CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view < rmState[r].view}) /= 0 })
+CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view >= rmState[r].view}) = 0 })
 MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) + CountFailed(r) > F
 NotAcceptingPayloadsDueToViewChanging(r) ==
   /\ IsViewChanging(r)
@@ -265,5 +265,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Jan 09 14:44:50 MSK 2023 by anna
+\* Last modified Thu Jan 12 15:31:41 MSK 2023 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
