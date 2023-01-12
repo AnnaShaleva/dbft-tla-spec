@@ -1,1 +1,12 @@
-dBFT.toolbox
+# TLC model checking results
+*.out
+*SnapShot*
+*.st
+*.fp
+*.toolbox/*/*
+!*.toolbox/*/*.cfg
+!*.toolbox/*/*.tla
+
+# TLA+ Toolbox projects' info
+*.project
+*.settings
