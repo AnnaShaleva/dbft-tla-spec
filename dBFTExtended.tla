@@ -44,6 +44,8 @@ ASSUME
   /\ N >= 4
   /\ RMFault \subseteq RM
   /\ Cardinality(RMFault) <= F
+  /\ MaxUndeliveredMessages >= 2
+  /\ MaxView >= 1
 
 \* Messages is a set of records where each record holds the message type,
 \* the message sender and sender's view by the moment when message was sent.
@@ -234,6 +236,8 @@ Safety == Init /\ [][Next]_<<msgs, rmState>>
 
 \* For every possible behaviour it's true that there's at least one PrepareRequest message from the speaker.
 PrepareRequestSentRequirement == <>(\E msg \in msgs : msg.type = "PrepareRequest")
+PrepareResponseSentRequirement == <>(\E msg \in msgs : msg.type = "PrepareResponse")
+CommitSentRequirement == <>(\E msg \in msgs : msg.type = "Commit")
 
 \* For every possible behaviour it's true that eventually (i.e. at least once through the behaviour)
 \* block will be accepted. It is something that dBFT must guarantee (an in practice this
@@ -253,7 +257,12 @@ BlockAcceptanceRequirement == \A r \in RM \ RMFault : (rmState[r].type = "commit
 \* the rest of the behaviour that can always make the liveness formula true; if there's
 \* no such behaviour than the liveness formula is violated. The liveness formula is supposed
 \* to be checked as a property by TLC model checker.
-Liveness == PrepareRequestSentRequirement /\ TerminationRequirement /\ BlockAcceptanceRequirement \* /\ DeadlockFreeRequirement
+Liveness == /\ PrepareRequestSentRequirement
+            /\ PrepareResponseSentRequirement
+            /\ CommitSentRequirement
+            /\ TerminationRequirement
+            /\ BlockAcceptanceRequirement
+            \* /\ DeadlockFreeRequirement
 
 \* -------------- Fairness temporal formula --------------
 
@@ -268,7 +277,8 @@ CVFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
 
 \* 
 \* Fairness is a temporal assumptions under which the model is working.
-Fairness == CheckPrepareFairness /\ SendPrepareRequestFairness /\ ReceiveMsgFairness /\ CVFairness
+\* Fairness == CheckPrepareFairness /\ SendPrepareRequestFairness /\ ReceiveMsgFairness /\ CVFairness
+Fairness == WF_vars(Next) \* just enough to avoid infinite stuttering before every step
 
 \* -------------- Specification --------------
 
@@ -279,7 +289,7 @@ Spec == Safety /\ Fairness
 
 MaxViewConstraint == (\A r \in RM : rmState[r].view <= MaxView) /\ (\A msg \in msgs : msg.view <= MaxView)
 
-MaxMessageConstraint == Cardinality({msg \in msgs : \E rm \in RM : msg \notin rmState[rm].pool}) <= MaxUndeliveredMessages 
+MaxMessageConstraint == Cardinality({msg \in msgs : (\E rm \in RM : msg \notin rmState[rm].pool)}) <= MaxUndeliveredMessages
 
 ModelConstraint == MaxViewConstraint /\ MaxMessageConstraint
 
@@ -291,5 +301,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Jan 13 07:52:36 MSK 2023 by anna
+\* Last modified Fri Jan 13 13:58:27 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
