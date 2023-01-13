@@ -16,7 +16,8 @@ CONSTANTS
   \* ]
   RM,
   RMFault,
-  MaxView
+  \* Model constraints for states graph size reduction.
+  MaxView, MaxUndeliveredMessages
 
 VARIABLES
   \* rmState is a set of consensus node states, i.e. rmState[r] is the state
@@ -276,7 +277,11 @@ Spec == Safety /\ Fairness
 
 \* -------------- ModelConstraints --------------
 
-MaxViewConstraint == (\A r \in RM : rmState[r].view <= MaxView) /\ (\A msg \in msgs : msg.view <= MaxView) 
+MaxViewConstraint == (\A r \in RM : rmState[r].view <= MaxView) /\ (\A msg \in msgs : msg.view <= MaxView)
+
+MaxMessageConstraint == Cardinality({msg \in msgs : \E rm \in RM : msg \notin rmState[rm].pool}) <= MaxUndeliveredMessages 
+
+ModelConstraint == MaxViewConstraint /\ MaxMessageConstraint
 
 \* -------------- Invariants of the specification --------------
 
@@ -286,5 +291,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jan 12 15:26:34 MSK 2023 by anna
+\* Last modified Fri Jan 13 07:52:36 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna

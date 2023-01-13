@@ -5,7 +5,7 @@
     <stringAttribute key="distributedNetworkInterface" value="172.200.0.254"/>
     <intAttribute key="distributedNodesCount" value="1"/>
     <stringAttribute key="distributedTLC" value="off"/>
-    <intAttribute key="fpIndex" value="72"/>
+    <intAttribute key="fpIndex" value="33"/>
     <intAttribute key="maxHeapSize" value="50"/>
     <stringAttribute key="modelBehaviorInit" value=""/>
     <stringAttribute key="modelBehaviorNext" value=""/>
@@ -28,8 +28,9 @@
         <listEntry value="RMFault;;{};0;0"/>
         <listEntry value="RM;;{[name |-&gt; &quot;rm1&quot;, index |-&gt; 1], [name |-&gt; &quot;rm2&quot;, index |-&gt; 2], [name |-&gt; &quot;rm3&quot;, index |-&gt; 3], [name |-&gt; &quot;rm4&quot;, index |-&gt; 4]};0;0"/>
         <listEntry value="MaxView;;2;0;0"/>
+        <listEntry value="MaxUndeliveredMessages;;2;0;0"/>
     </listAttribute>
-    <stringAttribute key="modelParameterContraint" value="MaxViewConstraint"/>
+    <stringAttribute key="modelParameterContraint" value="ModelConstraint"/>
     <listAttribute key="modelParameterDefinitions"/>
     <stringAttribute key="modelParameterModelValues" value="{}"/>
     <stringAttribute key="modelParameterNewDefinitions" value=""/>

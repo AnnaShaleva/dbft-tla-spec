@@ -16,7 +16,8 @@ CONSTANTS
   \* ]
   RM,
   RMFault,
-  MaxView
+  \* Model constraints for states graph size reduction.
+  MaxView, MaxUndeliveredMessages
 
 VARIABLES
   \* rmState is a set of consensus node states, i.e. rmState[r] is the state
@@ -124,18 +125,19 @@ RMCheckPrepare(r) == \* And thus, require SF for this action.
            ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
   
 RMSendChangeView(r) ==
-  LET msg == [type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]
-  IN /\ msg \notin msgs  
-     /\ msgs' = msgs \cup {msg}
-     \* Implementation of send.go -L91 d.checkChangeView(newView):
-     /\ IF Cardinality({m \in rmState[r].pool : m.type = "ChangeView" /\ GetNewView(m.view) >= GetNewView(msg.view)}) >= M-1 \* -1 is for the currently sent CV
-        THEN rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = GetNewView(msg.view), ![r].pool = rmState[r].pool \cup {msg}]
-        ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
-        \* TODO: dbft.go -L98: d.broadcast(d.makeChangeView(uint64(d.Timer.Now().UnixNano()), payload.CVChangeAgreement))
+  /\((IsPrimary(r) /\ PrepareRequestSentOrReceived(r)) \/ \neg IsPrimary(r)) /\ \neg CommitSent(r)
+  /\ LET msg == [type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]
+     IN /\ msg \notin msgs  
+        /\ msgs' = msgs \cup {msg}
+        \* Implementation of send.go -L91 d.checkChangeView(newView):
+        /\ IF Cardinality({m \in rmState[r].pool : m.type = "ChangeView" /\ GetNewView(m.view) >= GetNewView(msg.view)}) >= M-1 \* -1 is for the currently sent CV
+           THEN rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = GetNewView(msg.view), ![r].pool = rmState[r].pool \cup {msg}]
+           ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+           \* TODO: dbft.go -L98: d.broadcast(d.makeChangeView(uint64(d.Timer.Now().UnixNano()), payload.CVChangeAgreement))
   
 OnTimeout(r) ==
-  RMSendPrepareRequest(r)
-  \*\/ ((IsPrimary(r) /\ PrepareRequestSentOrReceived(r)) \/ \neg IsPrimary(r)) /\ \neg CommitSent(r) /\ RMSendChangeView(r)
+  \/ RMSendPrepareRequest(r)
+  \/ RMSendChangeView(r)
   \* TODO: dbft.go -L198: d.sendRecoveryMessage()
 
 \* Non-primary node r receives PrepareRequest from the primary node
@@ -154,7 +156,7 @@ RMOnPrepareRequest(r) == \E msg \in msgs \ rmState[r].pool:
         \* TODO: dbft.go -L342 d.checkPrepare() (and send commit/accept block if everything OK)
         \* but we can't put another step right here.
         \* Thus, implement it as a separate action for now (RMCheckPrepare).
-        \* TODO: it is needed to be implemented inside the RMOnPrepareResponse to be triggered immediately.
+        \* TODO: it is needed to be implemented inside the RMOnPrepareRequest to be triggered immediately.
         /\ UNCHANGED <<>>
 
 RMOnPrepareResponse(r) == \E msg \in msgs \ rmState[r].pool:
@@ -255,48 +257,18 @@ Liveness == PrepareRequestSentRequirement /\ TerminationRequirement /\ BlockAcce
 
 \* -------------- Fairness temporal formula --------------
 
-\* If continiously at least one of the node is able to send RMSendPrepareRequest, then
-\* it must send it eventually.
-\* SendPrepareRequestFairness == WF_vars(\E r \in RM : RMSendPrepareRequest(r))
-
-\* This requirement requires PrepareResponse message to be sent once PrepareRequest
-\* message is received by the node, but allows stop sending PrepareRequests as far (and
-\* disable RMSendPrepareResponse enabling condition). 
-\* SendPrepareResponseFairness == WF_vars(\E r \in RM : RMSendPrepareResponse(r))
-
-\* If repeatedly at least one of the node is able to send the commit message, then it
-\* must send it. Even if the node is able to send the ChangeView message after PrepareResponse,
-\* then the node is still must be able to send the Commit in the next view.
-\* SendCommitFairness == SF_vars(\E r \in RM : RMSendCommit(r))
-
-\* This requirement requires each proper subset of the Commit messages to be accepted
-\* once the set is completed. This results into block submission. At the same time,
-\* SF allows to stop sending Commit messages.
-\* SubmitBlockFairness == SF_vars(\E r \in RM : RMAcceptBlock(r))
-
-\* If continiously at least one node has accepted the block, then the node r must fetch
-\* it eventually.
-\* FetchBlockFairness == WF_vars(\E r \in RM : RMFetchBlock(r))
-
-\* This requirement is needed to avoid situations when one node is committed in the
-\* previous view, and three another nodes have changed their view so that the next
-\* speaker is the committed node. It's a deadlock, and this situation requires
-\* the rest of three nodes to change their view.
-\* SendChangeViewFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
-
-\* If ChangeView message has ever been repeatedly received by any of the node, then it must
-\* be properly handled.
-\* ReceiveChangeViewFairness == SF_vars(\E r \in RM : RMReceiveChangeView(r))
-
 SendPrepareRequestFairness == SF_vars(\E r \in RM : RMSendPrepareRequest(r))
 
+\* TODO: split into separate parts united with /\?
 ReceiveMsgFairness == SF_vars(\E r \in RM : RMOnPrepareRequest(r) \/ RMOnPrepareResponse(r) \/ RMOnCommit(r) \/ RMOnChangeView(r)  \/ RMCheckPrepare(r))
 
 CheckPrepareFairness == SF_vars(\E r \in RM : RMCheckPrepare(r))
 
+CVFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
+
 \* 
 \* Fairness is a temporal assumptions under which the model is working.
-Fairness == CheckPrepareFairness /\ SendPrepareRequestFairness /\ ReceiveMsgFairness
+Fairness == CheckPrepareFairness /\ SendPrepareRequestFairness /\ ReceiveMsgFairness /\ CVFairness
 
 \* -------------- Specification --------------
 
@@ -305,7 +277,11 @@ Spec == Safety /\ Fairness
 
 \* -------------- ModelConstraints --------------
 
-MaxViewConstraint == (\A r \in RM : rmState[r].view <= MaxView) /\ (\A msg \in msgs : msg.view <= MaxView) 
+MaxViewConstraint == (\A r \in RM : rmState[r].view <= MaxView) /\ (\A msg \in msgs : msg.view <= MaxView)
+
+MaxMessageConstraint == Cardinality({msg \in msgs : \E rm \in RM : msg \notin rmState[rm].pool}) <= MaxUndeliveredMessages 
+
+ModelConstraint == MaxViewConstraint /\ MaxMessageConstraint
 
 \* -------------- Invariants of the specification --------------
 
@@ -315,5 +291,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jan 12 14:54:38 MSK 2023 by anna
+\* Last modified Fri Jan 13 07:52:36 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
