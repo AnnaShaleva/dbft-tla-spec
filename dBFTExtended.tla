@@ -124,7 +124,7 @@ RMCheckPrepare(r) == \* And thus, require SF for this action.
      IN /\ msgs' = msgs \cup {msg}
         /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) >= M-1 \* -1 is for the currently sent Commit
            THEN rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg}]
-           ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+           ELSE rmState' = [rmState EXCEPT ![r].type = "commitSent", ![r].pool = rmState[r].pool \cup {msg}]
   
 RMSendChangeView(r) ==
   /\((IsPrimary(r) /\ PrepareRequestSentOrReceived(r)) \/ \neg IsPrimary(r)) /\ \neg CommitSent(r)
@@ -264,6 +264,18 @@ Liveness == /\ PrepareRequestSentRequirement
             /\ BlockAcceptanceRequirement
             \* /\ DeadlockFreeRequirement
 
+InvDeadlock == \A r1 \in RM :
+               \A r2 \in RM \ {r1} :
+               \A r3 \in RM \ {r1, r2} :
+               \A r4 \in RM \ {r1, r2, r3} :
+               \/ rmState[r1].type /= "commitSent"
+               \/ rmState[r2].type /= "commitSent"
+               \/ \neg IsViewChanging(r3)
+               \/ \neg IsViewChanging(r4)
+               \/ rmState[r1].view >= rmState[r2].view
+               \/ rmState[r2].view /= rmState[r3].view
+               \/ rmState[r3].view /= rmState[r4].view
+               
 \* -------------- Fairness temporal formula --------------
 
 SendPrepareRequestFairness == SF_vars(\E r \in RM : RMSendPrepareRequest(r))
@@ -301,5 +313,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Jan 13 13:58:27 MSK 2023 by anna
+\* Last modified Mon Jan 16 10:06:51 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna

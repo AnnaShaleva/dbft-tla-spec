@@ -1,12 +1,23 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <launchConfiguration type="org.lamport.tla.toolbox.tool.tlc.modelCheck">
+    <stringAttribute key="TLCCmdLineParameters" value=""/>
+    <stringAttribute key="alias" value=""/>
+    <intAttribute key="collectCoverage" value="1"/>
     <stringAttribute key="configurationName" value="Model_1"/>
+    <booleanAttribute key="deferLiveness" value="false"/>
+    <intAttribute key="dfidDepth" value="100"/>
+    <booleanAttribute key="dfidMode" value="false"/>
     <intAttribute key="distributedFPSetCount" value="0"/>
     <stringAttribute key="distributedNetworkInterface" value="172.200.0.254"/>
     <intAttribute key="distributedNodesCount" value="1"/>
     <stringAttribute key="distributedTLC" value="off"/>
-    <intAttribute key="fpIndex" value="86"/>
+    <stringAttribute key="distributedTLCVMArgs" value=""/>
+    <intAttribute key="fpBits" value="2"/>
+    <intAttribute key="fpIndex" value="84"/>
+    <booleanAttribute key="fpIndexRandom" value="true"/>
     <intAttribute key="maxHeapSize" value="50"/>
+    <intAttribute key="maxSetSize" value="1000016"/>
+    <booleanAttribute key="mcMode" value="true"/>
     <stringAttribute key="modelBehaviorInit" value=""/>
     <stringAttribute key="modelBehaviorNext" value=""/>
     <stringAttribute key="modelBehaviorSpec" value="Spec"/>
@@ -17,18 +28,19 @@
     <listAttribute key="modelCorrectnessInvariants">
         <listEntry value="1TypeOK"/>
         <listEntry value="0Cardinality({r \in RM : rmState[r].view = 3}) /= 2"/>
+        <listEntry value="1InvDeadlock"/>
     </listAttribute>
     <listAttribute key="modelCorrectnessProperties">
-        <listEntry value="1Liveness"/>
+        <listEntry value="0Liveness"/>
     </listAttribute>
-    <intAttribute key="modelEditorOpenTabs" value="10"/>
+    <intAttribute key="modelEditorOpenTabs" value="14"/>
     <stringAttribute key="modelExpressionEval" value=""/>
     <stringAttribute key="modelParameterActionConstraint" value=""/>
     <listAttribute key="modelParameterConstants">
         <listEntry value="RMFault;;{};0;0"/>
         <listEntry value="RM;;{[name |-&gt; &quot;rm1&quot;, index |-&gt; 1], [name |-&gt; &quot;rm2&quot;, index |-&gt; 2], [name |-&gt; &quot;rm3&quot;, index |-&gt; 3], [name |-&gt; &quot;rm4&quot;, index |-&gt; 4]};0;0"/>
-        <listEntry value="MaxView;;1;0;0"/>
-        <listEntry value="MaxUndeliveredMessages;;2;0;0"/>
+        <listEntry value="MaxView;;3;0;0"/>
+        <listEntry value="MaxUndeliveredMessages;;3;0;0"/>
     </listAttribute>
     <stringAttribute key="modelParameterContraint" value="ModelConstraint"/>
     <listAttribute key="modelParameterDefinitions"/>
@@ -36,7 +48,15 @@
     <stringAttribute key="modelParameterNewDefinitions" value=""/>
     <intAttribute key="modelVersion" value="20191005"/>
     <intAttribute key="numberOfWorkers" value="8"/>
+    <stringAttribute key="postCondition" value=""/>
+    <booleanAttribute key="recover" value="false"/>
     <stringAttribute key="result.mail.address" value=""/>
+    <intAttribute key="simuAril" value="-1"/>
+    <intAttribute key="simuDepth" value="100"/>
+    <stringAttribute key="simuNumTraces" value="9223372036854775807"/>
+    <intAttribute key="simuSeed" value="-1"/>
     <stringAttribute key="specName" value="dBFTExtended"/>
     <stringAttribute key="tlcResourcesProfile" value="local custom"/>
+    <stringAttribute key="view" value=""/>
+    <booleanAttribute key="visualizeStateGraph" value="false"/>
 </launchConfiguration>
