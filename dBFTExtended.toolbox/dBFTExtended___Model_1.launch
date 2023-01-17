@@ -13,7 +13,7 @@
     <stringAttribute key="distributedTLC" value="off"/>
     <stringAttribute key="distributedTLCVMArgs" value=""/>
     <intAttribute key="fpBits" value="2"/>
-    <intAttribute key="fpIndex" value="84"/>
+    <intAttribute key="fpIndex" value="40"/>
     <booleanAttribute key="fpIndexRandom" value="true"/>
     <intAttribute key="maxHeapSize" value="50"/>
     <intAttribute key="maxSetSize" value="1000016"/>
@@ -29,6 +29,7 @@
         <listEntry value="1TypeOK"/>
         <listEntry value="0Cardinality({r \in RM : rmState[r].view = 3}) /= 2"/>
         <listEntry value="1InvDeadlock"/>
+        <listEntry value="0InvBlockNeverAccepted"/>
     </listAttribute>
     <listAttribute key="modelCorrectnessProperties">
         <listEntry value="0Liveness"/>
@@ -40,7 +41,7 @@
         <listEntry value="RMFault;;{};0;0"/>
         <listEntry value="RM;;{[name |-&gt; &quot;rm1&quot;, index |-&gt; 1], [name |-&gt; &quot;rm2&quot;, index |-&gt; 2], [name |-&gt; &quot;rm3&quot;, index |-&gt; 3], [name |-&gt; &quot;rm4&quot;, index |-&gt; 4]};0;0"/>
         <listEntry value="MaxView;;3;0;0"/>
-        <listEntry value="MaxUndeliveredMessages;;3;0;0"/>
+        <listEntry value="MaxUndeliveredMessages;;4;0;0"/>
     </listAttribute>
     <stringAttribute key="modelParameterContraint" value="ModelConstraint"/>
     <listAttribute key="modelParameterDefinitions"/>

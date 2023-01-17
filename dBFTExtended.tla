@@ -44,7 +44,7 @@ ASSUME
   /\ N >= 4
   /\ RMFault \subseteq RM
   /\ Cardinality(RMFault) <= F
-  /\ MaxUndeliveredMessages >= 2
+  /\ MaxUndeliveredMessages >= 3 \* First value when block can be accepted in some behaviours.
   /\ MaxView >= 1
 
 \* Messages is a set of records where each record holds the message type,
@@ -107,25 +107,19 @@ Init ==
 RMSendPrepareRequest(r) ==
   /\ IsPrimary(r) /\ rmState[r].type = "initialized"
   /\ LET msg == [type |-> "PrepareRequest", rm |-> r, view |-> rmState[r].view]
-     IN /\ msg \notin msgs
-        /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent", ![r].pool = rmState[r].pool \cup {msg}]
-        /\ msgs' = msgs \cup {msg}
-        \* TODO: dbft.go -L42: d.checkPrepare() goes right after that, but we can't put another step right here.
-        \* Thus, implement it as a separate action for now (RMCheckPrepare).
-        \* TODO: it is needed to be implemented inside the RMSendPrepareRequest to be triggered immediately.
+     IN /\ msg \notin msgs 
+        \* Implementation of send.go -L42 d.checkPrepare():
+        /\ IF Cardinality({m \in rmState[r].pool : m.type = "PrepareResponse" /\ m.view = rmState[r].view}) < M - 1 \* -1 is for the current PrepareRequest.
+           THEN /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent", ![r].pool = rmState[r].pool \cup {msg}]
+                /\ msgs' = msgs \cup {msg}
+           \* Implementation of check.go -L34-L36 d.sendCommit(); d.checkCommit():
+           ELSE LET commit == [type |-> "Commit", rm |-> r, view |-> rmState[r].view]
+                IN /\ msgs' = msgs \cup {msg, commit}
+                   /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) < M-1 \* -1 is for the current Commit
+                      THEN rmState' = [rmState EXCEPT ![r].type = "commitSent", ![r].pool = rmState[r].pool \cup {msg, commit}]
+                      ELSE rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg, commit}]
         /\ UNCHANGED <<>>
 
-RMCheckPrepare(r) == \* And thus, require SF for this action.
-  /\ \neg CommitSent(r)
-  /\ PrepareRequestSentOrReceived(r)
-  /\ Cardinality({msg \in rmState[r].pool : (msg.type = "PrepareRequest" \/ msg.type = "PrepareResponse") /\ msg.view = rmState[r].view}) >= M
-  \* Implementation of check.go -L34-L36 d.sendCommit(); d.checkCommit():
-  /\ LET msg == [type |-> "Commit", rm |-> r, view |-> rmState[r].view]
-     IN /\ msgs' = msgs \cup {msg}
-        /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) >= M-1 \* -1 is for the currently sent Commit
-           THEN rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg}]
-           ELSE rmState' = [rmState EXCEPT ![r].type = "commitSent", ![r].pool = rmState[r].pool \cup {msg}]
-  
 RMSendChangeView(r) ==
   /\((IsPrimary(r) /\ PrepareRequestSentOrReceived(r)) \/ \neg IsPrimary(r)) /\ \neg CommitSent(r)
   /\ LET msg == [type |-> "ChangeView", rm |-> r, view |-> rmState[r].view]
@@ -150,15 +144,17 @@ RMOnPrepareRequest(r) == \E msg \in msgs \ rmState[r].pool:
   /\ msg.type = "PrepareRequest"
   /\ rmState[r].type = "initialized" \* dbft.go -L300
   /\ \neg IsPrimary(r)
-  \* /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L300, in C# node, but not in ours
+  \* /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L296, in C# node, but not in ours
   /\ msg.view = rmState[r].view
   /\ LET pResp == [type |-> "PrepareResponse", rm |-> r, view |-> rmState[r].view]
-     IN /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent", ![r].pool = rmState[r].pool \cup {msg, pResp}]
-        /\ msgs' = msgs \cup {pResp}
-        \* TODO: dbft.go -L342 d.checkPrepare() (and send commit/accept block if everything OK)
-        \* but we can't put another step right here.
-        \* Thus, implement it as a separate action for now (RMCheckPrepare).
-        \* TODO: it is needed to be implemented inside the RMOnPrepareRequest to be triggered immediately.
+     IN IF Cardinality({m \in rmState[r].pool : m.type = "PrepareResponse" /\ m.view = rmState[r].view}) < M - 1 - 1 \* -1 is for reveived PrepareRequest; -1 is for current PrepareResponse
+        THEN /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent", ![r].pool = rmState[r].pool \cup {msg, pResp}]
+             /\ msgs' = msgs \cup {pResp}
+        ELSE LET commit == [type |-> "Commit", rm |-> r, view |-> rmState[r].view]
+             IN /\ msgs' = msgs \cup {msg, pResp, commit}
+                /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) < M-1 \* -1 is for the current Commit
+                   THEN rmState' = [rmState EXCEPT ![r].type = "commitSent", ![r].pool = rmState[r].pool \cup {msg, pResp, commit}]
+                   ELSE rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg, pResp, commit}]
         /\ UNCHANGED <<>>
 
 RMOnPrepareResponse(r) == \E msg \in msgs \ rmState[r].pool:
@@ -166,21 +162,26 @@ RMOnPrepareResponse(r) == \E msg \in msgs \ rmState[r].pool:
   /\ msg.type = "PrepareResponse"
   /\ msg.view = rmState[r].view
   /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L423
-  /\ rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
-  \* TODO: dbft.go -L455-457 d.checkPrepare() (and send commit/accept block if everything OK)
-  \* but we can't put another step right here.
-  \* Thus, implement it as a separate action for now (RMCheckPrepare).
-  \* TODO: it is needed to be implemented inside the RMOnPrepareResponse to be triggered immediately.
-  /\ UNCHANGED <<msgs>>
+  \* Implementation of dbft.go -L433, -L455:
+  /\ IF \/ Cardinality({m \in rmState[r].pool : (m.type = "PrepareRequest" \/ m.type = "PrepareResponse") /\ m.view = rmState[r].view}) < M - 1 \* -1 is for the currently received PrepareResponse. 
+        \/ CommitSent(r)
+        \/ \neg PrepareRequestSentOrReceived(r)
+     THEN /\ rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+          /\ UNCHANGED <<msgs>>
+     ELSE LET commit == [type |-> "Commit", rm |-> r, view |-> rmState[r].view]
+          IN /\ msgs' = msgs \cup {msg, commit}
+             /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) < M-1 \* -1 is for the current Commit
+                THEN rmState' = [rmState EXCEPT ![r].type = "commitSent", ![r].pool = rmState[r].pool \cup {msg, commit}]
+                ELSE rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg, commit}]  
 
 \* Node r accepts Commit message and (in case if there's enough Commits) accepts block. 
 RMOnCommit(r) == \E msg \in msgs \ rmState[r].pool:
   /\ msg.rm # r /\ msg.view <= rmState[r].view
   /\ msg.type = "Commit"
   /\ msg.view = rmState[r].view \* TODO: dbft.go -L517 d.CommitPayloads[msg.ValidatorIndex()] = msg (cache prev/next commits?)
-  /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) >= M-1 \* -1 is for the currently accepting commit
-     THEN rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg}]
-     ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+  /\ IF Cardinality({m \in rmState[r].pool : m.type = "Commit" /\ m.view = rmState[r].view}) < M-1 \* -1 is for the currently accepting commit
+     THEN rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+     ELSE rmState' = [rmState EXCEPT ![r].type = "blockAccepted", ![r].pool = rmState[r].pool \cup {msg}]
   /\ UNCHANGED <<msgs>>
   
 RMOnChangeView(r) == \E msg \in msgs \ rmState[r].pool:
@@ -190,9 +191,9 @@ RMOnChangeView(r) == \E msg \in msgs \ rmState[r].pool:
   /\ \neg CommitSent(r)
   /\ Cardinality({m \in rmState[r].pool : m.type = "ChangeView" /\ m.rm = msg.rm /\ m.view > msg.view}) = 0 \* dbft.go -L477
   \* Implementation of dbft.go -L488 d.checkChangeView(p.NewViewNumber()):
-  /\ IF Cardinality({m \in rmState[r].pool : m.type = "ChangeView" /\ GetNewView(m.view) >= GetNewView(msg.view)}) >= M-1 \* -1 is for the currently accepting CV
-     THEN rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = GetNewView(msg.view), ![r].pool = rmState[r].pool \cup {msg}]
-     ELSE rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+  /\ IF Cardinality({m \in rmState[r].pool : m.type = "ChangeView" /\ GetNewView(m.view) >= GetNewView(msg.view)}) < M-1 \* -1 is for the currently accepting CV
+     THEN rmState' = [rmState EXCEPT ![r].pool = rmState[r].pool \cup {msg}]
+     ELSE rmState' = [rmState EXCEPT ![r].type = "initialized", ![r].view = GetNewView(msg.view), ![r].pool = rmState[r].pool \cup {msg}]
   \* TODO: dbft.go -L98: d.broadcast(d.makeChangeView(uint64(d.Timer.Now().UnixNano()), payload.CVChangeAgreement))
   /\ UNCHANGED <<msgs>>
 
@@ -216,7 +217,6 @@ Next ==
   \/ \E r \in RM : 
        \/ OnTimeout(r)
        \/ RMOnPrepareRequest(r) \/ RMOnPrepareResponse(r) \/ RMOnCommit(r) \/ RMOnChangeView(r)
-       \/ RMCheckPrepare(r)
 
 \* A safety temporal formula specifies only what the system MAY do (i.e. the set of possible
 \* allowed behaviours for the system). It asserts only what may happen; any behaviour
@@ -264,6 +264,9 @@ Liveness == /\ PrepareRequestSentRequirement
             /\ BlockAcceptanceRequirement
             \* /\ DeadlockFreeRequirement
 
+\* This invariant must always be violated.
+InvBlockNeverAccepted == \A r \in RM : rmState[r].type /= "blockAccepted"
+
 InvDeadlock == \A r1 \in RM :
                \A r2 \in RM \ {r1} :
                \A r3 \in RM \ {r1, r2} :
@@ -281,15 +284,13 @@ InvDeadlock == \A r1 \in RM :
 SendPrepareRequestFairness == SF_vars(\E r \in RM : RMSendPrepareRequest(r))
 
 \* TODO: split into separate parts united with /\?
-ReceiveMsgFairness == SF_vars(\E r \in RM : RMOnPrepareRequest(r) \/ RMOnPrepareResponse(r) \/ RMOnCommit(r) \/ RMOnChangeView(r)  \/ RMCheckPrepare(r))
-
-CheckPrepareFairness == SF_vars(\E r \in RM : RMCheckPrepare(r))
+ReceiveMsgFairness == SF_vars(\E r \in RM : RMOnPrepareRequest(r) \/ RMOnPrepareResponse(r) \/ RMOnCommit(r) \/ RMOnChangeView(r))
 
 CVFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
 
 \* 
 \* Fairness is a temporal assumptions under which the model is working.
-\* Fairness == CheckPrepareFairness /\ SendPrepareRequestFairness /\ ReceiveMsgFairness /\ CVFairness
+\* Fairness == SendPrepareRequestFairness /\ ReceiveMsgFairness /\ CVFairness
 Fairness == WF_vars(Next) \* just enough to avoid infinite stuttering before every step
 
 \* -------------- Specification --------------
@@ -313,5 +314,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Jan 16 10:06:51 MSK 2023 by anna
+\* Last modified Tue Jan 17 15:31:29 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
