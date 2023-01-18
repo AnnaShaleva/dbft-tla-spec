@@ -80,7 +80,7 @@ GetNewView(oldView) == oldView + 1
 
 \* IsViewChanging denotes whether node r have sent ChangeView message for the
 \* current (or later) round.
-IsViewChanging(r) == Cardinality({msg \in rmState[r].pool : msg.type = "ChangeView" /\ msg.view >= rmState[r].view}) /= 0
+IsViewChanging(r) == Cardinality({msg \in rmState[r].pool : msg.type = "ChangeView" /\ msg.view >= rmState[r].view /\ msg.rm = r}) /= 0
 
 CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in rmState[r].pool : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
 
@@ -314,5 +314,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Jan 17 15:31:29 MSK 2023 by anna
+\* Last modified Wed Jan 18 08:18:03 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
