@@ -273,7 +273,7 @@ InvDeadlock == \A r1 \in RM :
                \A r4 \in RM \ {r1, r2, r3} :
                \/ rmState[r1].type /= "commitSent"
                \/ rmState[r2].type /= "commitSent"
-               \/ \neg IsViewChanging(r3)
+               \/ rmState[r3].type /= "commitSent"
                \/ \neg IsViewChanging(r4)
                \/ rmState[r1].view >= rmState[r2].view
                \/ rmState[r2].view /= rmState[r3].view
@@ -314,5 +314,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Jan 18 08:18:03 MSK 2023 by anna
+\* Last modified Wed Jan 18 12:13:08 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
