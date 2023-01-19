@@ -144,7 +144,7 @@ RMOnPrepareRequest(r) == \E msg \in msgs \ rmState[r].pool:
   /\ msg.type = "PrepareRequest"
   /\ rmState[r].type = "initialized" \* dbft.go -L300
   /\ \neg IsPrimary(r)
-  \* /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L296, in C# node, but not in ours
+  /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L296, in C# node, but not in ours
   /\ msg.view = rmState[r].view
   /\ LET pResp == [type |-> "PrepareResponse", rm |-> r, view |-> rmState[r].view]
      IN IF Cardinality({m \in rmState[r].pool : m.type = "PrepareResponse" /\ m.view = rmState[r].view}) < M - 1 - 1 \* -1 is for reveived PrepareRequest; -1 is for current PrepareResponse
@@ -314,5 +314,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Jan 18 12:13:08 MSK 2023 by anna
+\* Last modified Thu Jan 19 10:59:22 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
