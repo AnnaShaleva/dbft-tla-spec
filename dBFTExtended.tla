@@ -49,7 +49,7 @@ ASSUME
 
 \* Messages is a set of records where each record holds the message type,
 \* the message sender and sender's view by the moment when message was sent.
-Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView"}, rm : RM, view : Nat]
+Messages == [type : {"PrepareRequest", "PrepareResponse", "Commit", "ChangeView", "corrupted"}, rm : RM, view : Nat]
 
 \* RMStates is a set of records where each record holds the node state and
 \* the node current view.
@@ -197,6 +197,15 @@ RMOnChangeView(r) == \E msg \in msgs \ rmState[r].pool:
   \* TODO: dbft.go -L98: d.broadcast(d.makeChangeView(uint64(d.Timer.Now().UnixNano()), payload.CVChangeAgreement))
   /\ UNCHANGED <<msgs>>
 
+CorruptMsg == \E fault \in RMFault : \E msg \in msgs : 
+            /\ msg.type /= "corrupted"
+            /\ [type |-> "corrupted", rm |-> msg.rm, view |-> msg.view] \notin msgs
+            /\ \A rm \in RM \ RMFault : 
+                /\ msg \notin rmState[rm].pool
+                /\ msg.rm = fault
+                /\ msgs' = {m \in msgs : m /= msg} \cup {[type |-> "corrupted", rm |-> msg.rm, view |-> msg.view]}
+                /\ UNCHANGED <<rmState>>
+
 \* OnReceive(r) ==
 \*  \E msg \in msgs :
 \*                   /\ msg.rm # r /\ msg \notin rmState[r].pool /\ msg.view <= rmState[r].view
@@ -211,9 +220,20 @@ Terminating ==
   /\ Cardinality({rm \in RM : rmState[rm].type = "blockAccepted"}) >=1
   /\ UNCHANGED <<msgs, rmState>>
   
+TCommitDeadlockTerminating == /\ LET committed == {rm \in RM : rmState[rm].type = "commitSent"}
+                                     viewChanged == {rm \in RM : rmState[rm].type = "initialized"}
+                                 IN /\ Cardinality(committed) = 2
+                                    /\ Cardinality(viewChanged) = 2
+                                    /\ \A rm1 \in committed :
+                                       \A rm2 \in committed \ {rm1} : 
+                                       \A r \in viewChanged : /\ rmState[rm1].view = rmState[rm2].view
+                                                              /\ rmState[rm1].view = rmState[r].view - 1
+                              /\ UNCHANGED <<msgs, rmState>>
+                              
 \* The next-state action.
 Next ==
   \/ Terminating
+  \/ CorruptMsg
   \/ \E r \in RM : 
        \/ OnTimeout(r)
        \/ RMOnPrepareRequest(r) \/ RMOnPrepareResponse(r) \/ RMOnCommit(r) \/ RMOnChangeView(r)
@@ -314,5 +334,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jan 19 10:59:22 MSK 2023 by anna
+\* Last modified Thu Jan 19 16:11:06 MSK 2023 by anna
 \* Created Tue Jan 10 12:28:45 MSK 2023 by anna
