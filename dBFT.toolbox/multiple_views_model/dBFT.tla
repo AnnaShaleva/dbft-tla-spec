@@ -80,9 +80,10 @@ IsViewChanging(r) == Cardinality({msg \in msgs : msg.type = "ChangeView" /\ msg.
 \* IsBlockAccepted returns whether at least one node has the block being accepted.
 IsBlockAccepted == Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) > 0
 
-CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
-CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view >= rmState[r].view}) = 0 })
-MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) + CountFailed(r) > F
+CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit" /\ msg.view = rmState[r].view}) /= 0})
+\* CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view >= rmState[r].view}) = 0 })
+\* MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) + CountFailed(r) > F
+MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) > F
 NotAcceptingPayloadsDueToViewChanging(r) ==
   /\ IsViewChanging(r)
   /\ \neg MoreThanFNodesCommittedOrLost(r)
@@ -112,7 +113,7 @@ RMSendPrepareRequest(r) ==
 RMSendPrepareResponse(r) ==
   /\ rmState[r].type = "initialized" \* dbft.go -L151-L155
   /\ \neg IsPrimary(r)
-  \* /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L300, in C# node, but not in ours
+  /\ \neg NotAcceptingPayloadsDueToViewChanging(r) \* dbft.go -L300, in C# node, but not in ours
   /\ PrepareRequestSentOrReceived(r)
   /\ rmState' = [rmState EXCEPT ![r].type = "prepareSent"]
   /\ msgs' = msgs \cup {[type |-> "PrepareResponse", rm |-> r, view |-> rmState[r].view]}
@@ -132,7 +133,7 @@ RMSendCommit(r) ==
 
 \* Node r collects enough Commit messages and accepts block.
 RMAcceptBlock(r) ==
-  /\ rmState[r].type = "commitSent"
+  \* /\ rmState[r].type = "commitSent"
   /\ Cardinality({msg \in msgs : (msg.type = "Commit" /\ msg.view = rmState[r].view)}) >= M
   /\ rmState' = [rmState EXCEPT ![r].type = "blockAccepted"]
   /\ UNCHANGED <<msgs>>
@@ -291,5 +292,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Jan 20 11:33:58 MSK 2023 by anna
+\* Last modified Fri Jan 20 11:45:37 MSK 2023 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
