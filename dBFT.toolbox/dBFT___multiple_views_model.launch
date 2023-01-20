@@ -13,7 +13,7 @@
     <stringAttribute key="distributedTLC" value="off"/>
     <stringAttribute key="distributedTLCVMArgs" value=""/>
     <intAttribute key="fpBits" value="2"/>
-    <intAttribute key="fpIndex" value="17"/>
+    <intAttribute key="fpIndex" value="23"/>
     <booleanAttribute key="fpIndexRandom" value="true"/>
     <intAttribute key="maxHeapSize" value="50"/>
     <intAttribute key="maxSetSize" value="1000000"/>
@@ -22,7 +22,7 @@
     <stringAttribute key="modelBehaviorNext" value="Next"/>
     <stringAttribute key="modelBehaviorSpec" value="Spec"/>
     <intAttribute key="modelBehaviorSpecType" value="1"/>
-    <stringAttribute key="modelBehaviorVars" value=""/>
+    <stringAttribute key="modelBehaviorVars" value="msgs, rmState"/>
     <stringAttribute key="modelComments" value=""/>
     <booleanAttribute key="modelCorrectnessCheckDeadlock" value="true"/>
     <listAttribute key="modelCorrectnessInvariants">
@@ -30,12 +30,14 @@
         <listEntry value="0Inv"/>
         <listEntry value="0Inv2"/>
         <listEntry value="0InvFourGoodToBeViolated"/>
+        <listEntry value="1InvDeadlock1"/>
+        <listEntry value="1InvDeadlock2"/>
     </listAttribute>
     <listAttribute key="modelCorrectnessProperties">
         <listEntry value="0Spec"/>
         <listEntry value="0FairSpec"/>
         <listEntry value="0TemporalBlockAcceptanceProperty"/>
-        <listEntry value="1Liveness"/>
+        <listEntry value="0Liveness"/>
         <listEntry value="0Fairness"/>
     </listAttribute>
     <intAttribute key="modelEditorOpenTabs" value="14"/>

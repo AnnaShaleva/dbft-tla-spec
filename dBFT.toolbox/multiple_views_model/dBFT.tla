@@ -81,7 +81,7 @@ IsViewChanging(r) == Cardinality({msg \in msgs : msg.type = "ChangeView" /\ msg.
 IsBlockAccepted == Cardinality({r \in RM : rmState[r].type = "blockAccepted"}) > 0
 
 CountCommitted(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.type = "Commit"}) /= 0})  \* TODO: in dbft.go we take into account commits from (potentially) ANY view (not only from the current's node view).
-CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view < rmState[r].view}) /= 0 })
+CountFailed(r) == Cardinality({rm \in RM : Cardinality({msg \in msgs : msg.rm = rm /\ msg.view >= rmState[r].view}) = 0 })
 MoreThanFNodesCommittedOrLost(r) == CountCommitted(r) + CountFailed(r) > F
 NotAcceptingPayloadsDueToViewChanging(r) ==
   /\ IsViewChanging(r)
@@ -202,6 +202,30 @@ DeadlockFreeRequirement == (\E r \in RM \ RMFault : rmState[r].type = "commitSen
 \* the block will be accepted by this node in this step or in one of the subsequent steps of the behaviour.
 BlockAcceptanceRequirement == \A r \in RM \ RMFault : (rmState[r].type = "commitSent") ~> (rmState[r].type = "blockAccepted")
 
+InvDeadlock1 == \A r1 \in RM :
+               \A r2 \in RM \ {r1} :
+               \A r3 \in RM \ {r1, r2} :
+               \A r4 \in RM \ {r1, r2, r3} :
+               \/ rmState[r1].type /= "commitSent"
+               \/ rmState[r2].type /= "commitSent"
+               \/ \neg IsViewChanging(r3)
+               \/ \neg IsViewChanging(r4)
+               \/ rmState[r1].view >= rmState[r2].view
+               \/ rmState[r2].view /= rmState[r3].view
+               \/ rmState[r3].view /= rmState[r4].view
+               
+InvDeadlock2 == \A r1 \in RM :
+               \A r2 \in RM \ {r1} :
+               \A r3 \in RM \ {r1, r2} :
+               \A r4 \in RM \ {r1, r2, r3} :
+               \/ rmState[r1].type /= "commitSent"
+               \/ rmState[r2].type /= "commitSent"
+               \/ rmState[r3].type /= "commitSent"
+               \/ \neg IsViewChanging(r4)
+               \/ rmState[r1].view >= rmState[r2].view
+               \/ rmState[r2].view /= rmState[r3].view
+               \/ rmState[r3].view /= rmState[r4].view
+
 \* A liveness temporal formula asserts only what must happen (i.e. specifies what
 \* the system MUST do). Any behaviour can NOT violate it at ANY point; there's always
 \* the rest of the behaviour that can always make the liveness formula true; if there's
@@ -245,8 +269,10 @@ SendChangeViewFairness == WF_vars(\E r \in RM : RMSendChangeView(r))
 ReceiveChangeViewFairness == SF_vars(\E r \in RM : RMReceiveChangeView(r))
 
 \* Fairness is a temporal assumptions under which the model is working.
-Fairness == SendCommitFairness /\ SubmitBlockFairness /\ SendPrepareResponseFairness  /\ SendPrepareRequestFairness
-            /\ ReceiveChangeViewFairness /\ SendChangeViewFairness /\ FetchBlockFairness
+\* Fairness == SendCommitFairness /\ SubmitBlockFairness /\ SendPrepareResponseFairness  /\ SendPrepareRequestFairness
+\*            /\ ReceiveChangeViewFairness /\ SendChangeViewFairness /\ FetchBlockFairness
+            
+Fairness == WF_vars(Next)
 
 \* -------------- Specification --------------
 
@@ -265,5 +291,5 @@ THEOREM Spec => []TypeOK
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Jan 09 14:44:50 MSK 2023 by anna
+\* Last modified Fri Jan 20 11:33:58 MSK 2023 by anna
 \* Created Thu Dec 15 16:06:17 MSK 2022 by anna
